@@ -112,12 +112,8 @@ class _PdfViewState extends State<PdfView>
           _pages.clear();
           break;
         case PdfLoadingState.success:
+          _initializeThumbnails();
           widget.onDocumentLoaded?.call(_controller._document!);
-          final thumbnailCount = _calculateThumbnailCount(
-              ui.PlatformDispatcher.instance.views.first.physicalSize.width,
-              _controller._document!.pagesCount);
-          _calculateThumbnailPoints(
-              _controller._document!.pagesCount, thumbnailCount);
           break;
         case PdfLoadingState.error:
           widget.onDocumentError?.call(_loadingError!);
@@ -187,6 +183,54 @@ class _PdfViewState extends State<PdfView>
     return (await codec.getNextFrame()).image;
   }
 
+  // Initialize thumbnails
+  void _initializeThumbnails() {
+    final thumbnailCount = _calculateThumbnailCount(
+        ui.PlatformDispatcher.instance.views.first.physicalSize.width,
+        _controller._document!.pagesCount);
+    _calculateThumbnailPoints(
+        _controller._document!.pagesCount, thumbnailCount);
+  }
+
+  int _calculateThumbnailCount(double width, int pageCount) {
+    return (width / 130).round().clamp(0, pageCount);
+  }
+
+  void _calculateThumbnailPoints(int pageCount, int thumbnailCount) {
+    setState(() {
+      _thumbnailPoints = List<double>.generate(
+        thumbnailCount,
+        (i) => i * ((pageCount - 1) / (thumbnailCount - 1)),
+      );
+    });
+  }
+
+  // Thumbnail builder
+  Widget _buildThumbnail(int index) {
+    final pageIndex = _thumbnailPoints![index].toInt();
+    return _isDragging
+        ? Container(
+            // Keep the existing thumbnail or show a placeholder
+            child: _pages[pageIndex]?.bytes != null
+                ? Image(image: MemoryImage(_pages[pageIndex]!.bytes))
+                : const SizedBox(), // Placeholder widget
+          )
+        : FutureBuilder<PdfPageImage?>(
+            future: _getPageImage(pageIndex),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const CupertinoActivityIndicator();
+              } else if (snapshot.hasError) {
+                return Text('Error: ${snapshot.error}');
+              } else if (snapshot.hasData) {
+                return Image(image: MemoryImage(snapshot.data!.bytes));
+              } else {
+                return const Text('No image available');
+              }
+            },
+          );
+  }
+
   @override
   Widget build(BuildContext context) {
     return widget.builders.builder(
@@ -238,28 +282,6 @@ class _PdfViewState extends State<PdfView>
       child: content,
     );
   }
-
-  void _calculateThumbnailPoints(int pageCount, int thumbnailCount) {
-    List<double> thumbnailPoints;
-    if (thumbnailCount <= 1) {
-      thumbnailPoints = [0.0];
-    } else {
-      thumbnailPoints = List<double>.generate(
-        thumbnailCount,
-        (i) => i * ((pageCount - 1) / (thumbnailCount - 1)),
-      );
-    }
-    for (double point in thumbnailPoints) {
-      _getPageImage(point.toInt());
-    }
-    setState(() {
-      _thumbnailPoints = thumbnailPoints;
-    });
-  }
-
-  int _calculateThumbnailCount(double width, int pageCount) {
-    return (width / 130).round().clamp(0, pageCount);
-  } // Convert PdfPageImage to ui.Image
 
   /// Default page builder
   static PhotoViewGalleryPageOptions _pageBuilder(
@@ -327,26 +349,9 @@ class _PdfViewState extends State<PdfView>
                           child: ListView.separated(
                             shrinkWrap: true,
                             scrollDirection: Axis.horizontal,
-                            itemBuilder: (context, index) {
-                              return Container(
-                                width: 30,
-                                color: Theme.of(context).cardColor,
-                                child:
-                                    _pages[_thumbnailPoints![index]]?.bytes ==
-                                                null ||
-                                            _thumbnailPoints == null
-                                        ? const CupertinoActivityIndicator()
-                                        : Image(
-                                            image: MemoryImage(
-                                              _pages[_thumbnailPoints![index]]!
-                                                  .bytes,
-                                            ),
-                                          ),
-                              );
-                            },
-                            itemCount: _calculateThumbnailCount(
-                                MediaQuery.sizeOf(context).width,
-                                widget.controller.pagesCount!),
+                            itemBuilder: (context, index) =>
+                                _buildThumbnail(index),
+                            itemCount: _thumbnailPoints?.length ?? 0,
                             separatorBuilder: (context, index) =>
                                 const SizedBox(height: 5, width: 5),
                           ),
