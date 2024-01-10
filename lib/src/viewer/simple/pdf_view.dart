@@ -220,27 +220,30 @@ class _PdfViewState extends State<PdfView>
   // Thumbnail builder
   Widget _buildThumbnail(int index) {
     final pageIndex = _thumbnailPoints![index].toInt();
-    return _isDragging
-        ? Container(
-            // Keep the existing thumbnail or show a placeholder
-            child: _pages[pageIndex]?.bytes != null
-                ? Image(image: MemoryImage(_pages[pageIndex]!.bytes))
-                : const SizedBox(), // Placeholder widget
-          )
-        : FutureBuilder<PdfPageImage?>(
-            future: _getPageImage(pageIndex),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const CupertinoActivityIndicator();
-              } else if (snapshot.hasError) {
-                return Text('Error: ${snapshot.error}');
-              } else if (snapshot.hasData) {
-                return Image(image: MemoryImage(snapshot.data!.bytes));
-              } else {
-                return const Text('No image available');
-              }
-            },
-          );
+
+    // Check if the thumbnail is already loaded
+    if (_pages.containsKey(pageIndex) && _pages[pageIndex]?.bytes != null) {
+      // If the thumbnail is already loaded, display it
+      return Image(image: MemoryImage(_pages[pageIndex]!.bytes));
+    } else {
+      // If the thumbnail is not loaded, use FutureBuilder to load it
+      return FutureBuilder<PdfPageImage?>(
+        future: _getPageImage(pageIndex),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const CupertinoActivityIndicator();
+          } else if (snapshot.hasError) {
+            return Text('Error: ${snapshot.error}');
+          } else if (snapshot.hasData) {
+            // Once the data is available, update _pages and display the image
+            _pages[pageIndex] = snapshot.data;
+            return Image(image: MemoryImage(snapshot.data!.bytes));
+          } else {
+            return const Text('No image available');
+          }
+        },
+      );
+    }
   }
 
   @override
