@@ -115,7 +115,9 @@ class _PdfViewState extends State<PdfView>
           setState(() {
             _sliderNumber = 0;
           });
+          _initializeSliderImage();
           _initializeThumbnails();
+
           widget.onDocumentLoaded?.call(_controller._document!);
           break;
         case PdfLoadingState.error:
@@ -154,6 +156,13 @@ class _PdfViewState extends State<PdfView>
   void dispose() {
     _controller._detach();
     super.dispose();
+  }
+
+  void _initializeSliderImage() async {
+    if (_controller._document != null &&
+        _controller._document!.pagesCount > 0) {
+      await _getSliderImage(_sliderNumber);
+    }
   }
 
   Future<PdfPageImage> _getPageImage(int pageIndex) =>
@@ -321,6 +330,10 @@ class _PdfViewState extends State<PdfView>
             backgroundDecoration: widget.backgroundDecoration,
             pageController: _controller._pageController,
             onPageChanged: (index) {
+              setState(() {
+                _getSliderImage(index);
+                _sliderNumber = index;
+              });
               final pageNumber = index + 1;
               _controller.pageListenable.value = pageNumber;
               widget.onPageChanged?.call(pageNumber);
