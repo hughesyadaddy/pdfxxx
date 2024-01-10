@@ -46,7 +46,7 @@ class SliderThumbImage extends SliderComponentShape {
     required Size sizeWithOverflow,
   }) {
     final canvas = context.canvas;
-    final scale = isDragging ? 1.5 : 1.1;
+    final scale = isDragging ? 2 : 1.1;
 
     // Draws a blue border around the thumb shape.
     final borderPaint = Paint()

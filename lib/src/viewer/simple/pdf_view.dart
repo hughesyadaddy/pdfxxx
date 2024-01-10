@@ -388,7 +388,8 @@ class _PdfViewState extends State<PdfView>
                             trackHeight: 0,
                             trackShape: CustomTrackShape(),
                             showValueIndicator: ShowValueIndicator.always,
-                            valueIndicatorShape: CustomValueIndicatorShape(),
+                            valueIndicatorShape:
+                                CustomValueIndicatorShape(verticalOffset: 65),
                           ),
                           child: Slider(
                             value: _sliderNumber.toDouble(),
