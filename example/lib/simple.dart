@@ -78,30 +78,16 @@ class _SimplePageState extends State<SimplePage> {
           ),
         ],
       ),
-      body: Stack(
-        children: [
-          PdfView(
-            builders: PdfViewBuilders<DefaultBuilderOptions>(
-              options: const DefaultBuilderOptions(),
-              documentLoaderBuilder: (_) =>
-                  const Center(child: CircularProgressIndicator()),
-              pageLoaderBuilder: (_) =>
-                  const Center(child: CircularProgressIndicator()),
-              pageBuilder: _pageBuilder,
-            ),
-            controller: _pdfController,
-          ),
-          Positioned(
-              left: 0,
-              right: 0,
-              bottom: 40,
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: PdfBottomSlider(controller: _pdfController),
-                ),
-              ))
-        ],
+      body: PdfView(
+        builders: PdfViewBuilders<DefaultBuilderOptions>(
+          options: const DefaultBuilderOptions(),
+          documentLoaderBuilder: (_) =>
+              const Center(child: CircularProgressIndicator()),
+          pageLoaderBuilder: (_) =>
+              const Center(child: CircularProgressIndicator()),
+          pageBuilder: _pageBuilder,
+        ),
+        controller: _pdfController,
       ),
     );
   }

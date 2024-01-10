@@ -1,8 +1,16 @@
-import 'package:flutter/widgets.dart';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 import 'package:pdfx/src/renderer/interfaces/document.dart';
 import 'package:pdfx/src/renderer/interfaces/page.dart';
 import 'package:pdfx/src/viewer/base/base_pdf_builders.dart';
 import 'package:pdfx/src/viewer/base/base_pdf_controller.dart';
+import 'package:pdfx/src/viewer/base/debouncer.dart';
+import 'package:pdfx/src/viewer/base/slider_component_shape.dart';
+import 'package:pdfx/src/viewer/base/slider_thumb_image.dart';
+import 'package:pdfx/src/viewer/base/slider_track_shape.dart';
 import 'package:pdfx/src/viewer/pdf_page_image_provider.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
@@ -79,11 +87,21 @@ class PdfView extends StatefulWidget {
   State<PdfView> createState() => _PdfViewState();
 }
 
-class _PdfViewState extends State<PdfView> {
+class _PdfViewState extends State<PdfView>
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
+  late final AnimationController _animationController;
   final Map<int, PdfPageImage?> _pages = {};
   PdfController get _controller => widget.controller;
   Exception? _loadingError;
-
+  List<double>? _thumbnailPoints;
+  int _sliderNumber = 0;
+  bool _isDragging = false;
+  ui.Image? _sliderImage;
+  // Debouncers for delaying resize and slider image update
+  final _resizeScreenDebouncer =
+      Debouncer(delay: const Duration(milliseconds: 500));
+  final _sliderImageDebouncer =
+      Debouncer(delay: const Duration(milliseconds: 100));
   @override
   void initState() {
     super.initState();
@@ -95,6 +113,11 @@ class _PdfViewState extends State<PdfView> {
           break;
         case PdfLoadingState.success:
           widget.onDocumentLoaded?.call(_controller._document!);
+          final thumbnailCount = _calculateThumbnailCount(
+              ui.PlatformDispatcher.instance.views.first.physicalSize.width,
+              _controller._document!.pagesCount);
+          _calculateThumbnailPoints(
+              _controller._document!.pagesCount, thumbnailCount);
           break;
         case PdfLoadingState.error:
           widget.onDocumentError?.call(_loadingError!);
@@ -104,6 +127,28 @@ class _PdfViewState extends State<PdfView> {
         setState(() {});
       }
     });
+    _animationController = _createAnimationController();
+  }
+
+  // Create Animation Controller
+  AnimationController _createAnimationController() {
+    return AnimationController(
+      duration: const Duration(seconds: 1),
+      vsync: this,
+    )..repeat();
+  }
+
+  // Resize screen and regenerate thumbnails
+  @override
+  void didChangeMetrics() {
+    _resizeScreenDebouncer.run(() {
+      final thumbnailCount = _calculateThumbnailCount(
+          ui.PlatformDispatcher.instance.views.first.physicalSize.width,
+          _controller._document!.pagesCount);
+      _calculateThumbnailPoints(
+          _controller._document!.pagesCount, thumbnailCount);
+    });
+    super.didChangeMetrics();
   }
 
   @override
@@ -128,6 +173,19 @@ class _PdfViewState extends State<PdfView> {
 
         return _pages[pageIndex]!;
       });
+
+  Future<void> _getSliderImage(int pageIndex) async {
+    final image = await _getUiImage((await _getPageImage(pageIndex)).bytes);
+    setState(() {
+      _sliderImage = image;
+    });
+  }
+
+  // Convert PdfPageImage to ui.Image
+  Future<ui.Image> _getUiImage(Uint8List byteData) async {
+    final codec = await ui.instantiateImageCodec(byteData);
+    return (await codec.getNextFrame()).image;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -181,6 +239,28 @@ class _PdfViewState extends State<PdfView> {
     );
   }
 
+  void _calculateThumbnailPoints(int pageCount, int thumbnailCount) {
+    List<double> thumbnailPoints;
+    if (thumbnailCount <= 1) {
+      thumbnailPoints = [0.0];
+    } else {
+      thumbnailPoints = List<double>.generate(
+        thumbnailCount,
+        (i) => i * ((pageCount - 1) / (thumbnailCount - 1)),
+      );
+    }
+    for (double point in thumbnailPoints) {
+      _getPageImage(point.toInt());
+    }
+    setState(() {
+      _thumbnailPoints = thumbnailPoints;
+    });
+  }
+
+  int _calculateThumbnailCount(double width, int pageCount) {
+    return (width / 130).round().clamp(0, pageCount);
+  } // Convert PdfPageImage to ui.Image
+
   /// Default page builder
   static PhotoViewGalleryPageOptions _pageBuilder(
     BuildContext context,
@@ -200,26 +280,126 @@ class _PdfViewState extends State<PdfView> {
         heroAttributes: PhotoViewHeroAttributes(tag: '${document.id}-$index'),
       );
 
-  Widget _buildLoaded(BuildContext context) => PhotoViewGallery.builder(
-        builder: (context, index) => widget.builders.pageBuilder(
-          context,
-          _getPageImage(index),
-          index,
-          _controller._document!,
-        ),
-        itemCount: _controller._document?.pagesCount ?? 0,
-        loadingBuilder: (_, __) =>
-            widget.builders.pageLoaderBuilder?.call(context) ??
-            const SizedBox(),
-        backgroundDecoration: widget.backgroundDecoration,
-        pageController: _controller._pageController,
-        onPageChanged: (index) {
-          final pageNumber = index + 1;
-          _controller.pageListenable.value = pageNumber;
-          widget.onPageChanged?.call(pageNumber);
-        },
-        scrollDirection: widget.scrollDirection,
-        reverse: widget.reverse,
-        scrollPhysics: widget.physics,
+  Widget _buildLoaded(BuildContext context) => Stack(
+        children: [
+          PhotoViewGallery.builder(
+            builder: (context, index) => widget.builders.pageBuilder(
+              context,
+              _getPageImage(index),
+              index,
+              _controller._document!,
+            ),
+            itemCount: _controller._document?.pagesCount ?? 0,
+            loadingBuilder: (_, __) =>
+                widget.builders.pageLoaderBuilder?.call(context) ??
+                const SizedBox(),
+            backgroundDecoration: widget.backgroundDecoration,
+            pageController: _controller._pageController,
+            onPageChanged: (index) {
+              final pageNumber = index + 1;
+              _controller.pageListenable.value = pageNumber;
+              widget.onPageChanged?.call(pageNumber);
+            },
+            scrollDirection: widget.scrollDirection,
+            reverse: widget.reverse,
+            scrollPhysics: widget.physics,
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 40,
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Container(
+                  height: 60,
+                  width: _thumbnailPoints!.length * 37,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(6),
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      SizedBox(
+                        height: 40,
+                        child: Align(
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            scrollDirection: Axis.horizontal,
+                            itemBuilder: (context, index) {
+                              return Container(
+                                width: 30,
+                                color: Theme.of(context).cardColor,
+                                child:
+                                    _pages[_thumbnailPoints![index]]?.bytes ==
+                                                null ||
+                                            _thumbnailPoints == null
+                                        ? const CupertinoActivityIndicator()
+                                        : Image(
+                                            image: MemoryImage(
+                                              _pages[_thumbnailPoints![index]]!
+                                                  .bytes,
+                                            ),
+                                          ),
+                              );
+                            },
+                            itemCount: _calculateThumbnailCount(
+                                MediaQuery.sizeOf(context).width,
+                                widget.controller.pagesCount!),
+                            separatorBuilder: (context, index) =>
+                                const SizedBox(height: 5, width: 5),
+                          ),
+                        ),
+                      ),
+                      if (widget.controller.pagesCount != 1)
+                        SliderTheme(
+                          data: SliderThemeData(
+                            thumbShape: SliderThumbImage(
+                              image: _sliderImage,
+                              isDragging: _isDragging,
+                              rotation: _animationController.value,
+                            ),
+                            overlayShape: SliderComponentShape.noOverlay,
+                            trackHeight: 0,
+                            trackShape: CustomTrackShape(),
+                            showValueIndicator: ShowValueIndicator.always,
+                            valueIndicatorShape: CustomValueIndicatorShape(),
+                          ),
+                          child: Slider(
+                            value: _sliderNumber.toDouble(),
+                            max: widget.controller._document!.pagesCount
+                                    .toDouble() -
+                                1,
+                            min: 0,
+                            label: widget.controller.page.toString(),
+                            onChanged: (double value) {
+                              final pageNum = value.round();
+                              setState(() {
+                                _sliderImage = null;
+                                _isDragging = true;
+                                _sliderNumber = pageNum;
+                              });
+                              _sliderImageDebouncer.run(
+                                () => _getSliderImage(pageNum),
+                              );
+                            },
+                            onChangeEnd: (double value) {
+                              widget.controller.jumpToPage(
+                                value.round() + 1,
+                              );
+                              setState(() {
+                                _isDragging = false; // <-- Set to false
+                              });
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          )
+        ],
       );
 }

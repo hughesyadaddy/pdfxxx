@@ -10,6 +10,5 @@ export 'src/viewer/pdf_page_image_provider.dart';
 export 'src/viewer/base/base_pdf_builders.dart';
 export 'src/viewer/base/base_pdf_controller.dart';
 export 'src/viewer/base/pdf_page_number.dart';
-export 'src/viewer/base/pdf_bottom_slider.dart';
 export 'src/viewer/pinch/pdf_view_pinch.dart';
 export 'src/viewer/simple/pdf_view.dart';
