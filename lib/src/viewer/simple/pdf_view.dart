@@ -112,6 +112,9 @@ class _PdfViewState extends State<PdfView>
           _pages.clear();
           break;
         case PdfLoadingState.success:
+          setState(() {
+            _sliderNumber = 0;
+          });
           _initializeThumbnails();
           widget.onDocumentLoaded?.call(_controller._document!);
           break;
@@ -377,7 +380,7 @@ class _PdfViewState extends State<PdfView>
                                     .toDouble() -
                                 1,
                             min: 0,
-                            label: widget.controller.page.toString(),
+                            label: (_sliderNumber + 1).toString(),
                             onChanged: (double value) {
                               final pageNum = value.round();
                               setState(() {
