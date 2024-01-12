@@ -120,10 +120,16 @@ class _PdfSliderState extends State<PdfSlider>
   /// Calculates the positions of thumbnails on the slider.
   void _calculateThumbnailPoints(int pageCount, int thumbnailCount) {
     setState(() {
-      _thumbnailPoints = List<double>.generate(
-        thumbnailCount,
-        (i) => i * ((pageCount - 1) / (thumbnailCount - 1)),
-      );
+      if (thumbnailCount <= 1) {
+        _thumbnailPoints = [
+          0.0
+        ]; // or return a value that makes sense in your context
+      } else {
+        _thumbnailPoints = List<double>.generate(
+          thumbnailCount,
+          (i) => i * ((pageCount - 1) / (thumbnailCount - 1)),
+        );
+      }
     });
   }
 
