@@ -232,6 +232,7 @@ class _PdfViewState extends State<PdfView> {
             bottom: 40,
             child: Center(
               child: PdfSlider(
+                pageListenable: _controller.pageListenable,
                 totalPages: _controller._document?.pagesCount ?? 0,
                 thumbnailCache: _pages,
                 onPageChanged: (int page) {
