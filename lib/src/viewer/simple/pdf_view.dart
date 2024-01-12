@@ -1,17 +1,11 @@
-import 'dart:typed_data';
-import 'dart:ui' as ui;
-
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:pdfx/src/renderer/interfaces/document.dart';
 import 'package:pdfx/src/renderer/interfaces/page.dart';
 import 'package:pdfx/src/viewer/base/base_pdf_builders.dart';
 import 'package:pdfx/src/viewer/base/base_pdf_controller.dart';
-import 'package:pdfx/src/viewer/base/debouncer.dart';
-import 'package:pdfx/src/viewer/base/slider_component_shape.dart';
-import 'package:pdfx/src/viewer/base/slider_thumb_image.dart';
-import 'package:pdfx/src/viewer/base/slider_track_shape.dart';
 import 'package:pdfx/src/viewer/pdf_page_image_provider.dart';
+import 'package:pdfx/src/viewer/slider/slider.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
 import 'package:synchronized/synchronized.dart';
@@ -87,21 +81,11 @@ class PdfView extends StatefulWidget {
   State<PdfView> createState() => _PdfViewState();
 }
 
-class _PdfViewState extends State<PdfView>
-    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
-  late final AnimationController _animationController;
+class _PdfViewState extends State<PdfView> {
   final Map<int, PdfPageImage?> _pages = {};
   PdfController get _controller => widget.controller;
   Exception? _loadingError;
-  List<double>? _thumbnailPoints;
-  int _sliderNumber = 0;
-  bool _isDragging = false;
-  ui.Image? _sliderImage;
-  // Debouncers for delaying resize and slider image update
-  final _resizeScreenDebouncer =
-      Debouncer(delay: const Duration(milliseconds: 500));
-  final _sliderImageDebouncer =
-      Debouncer(delay: const Duration(milliseconds: 100));
+
   @override
   void initState() {
     super.initState();
@@ -112,12 +96,6 @@ class _PdfViewState extends State<PdfView>
           _pages.clear();
           break;
         case PdfLoadingState.success:
-          setState(() {
-            _sliderNumber = 0;
-          });
-          _initializeSliderImage();
-          _initializeThumbnails();
-
           widget.onDocumentLoaded?.call(_controller._document!);
           break;
         case PdfLoadingState.error:
@@ -128,41 +106,12 @@ class _PdfViewState extends State<PdfView>
         setState(() {});
       }
     });
-    _animationController = _createAnimationController();
-  }
-
-  // Create Animation Controller
-  AnimationController _createAnimationController() {
-    return AnimationController(
-      duration: const Duration(seconds: 1),
-      vsync: this,
-    )..repeat();
-  }
-
-  // Resize screen and regenerate thumbnails
-  @override
-  void didChangeMetrics() {
-    _resizeScreenDebouncer.run(() {
-      final thumbnailCount = _calculateThumbnailCount(
-          ui.PlatformDispatcher.instance.views.first.physicalSize.width,
-          _controller._document!.pagesCount);
-      _calculateThumbnailPoints(
-          _controller._document!.pagesCount, thumbnailCount);
-    });
-    super.didChangeMetrics();
   }
 
   @override
   void dispose() {
     _controller._detach();
     super.dispose();
-  }
-
-  void _initializeSliderImage() async {
-    if (_controller._document != null &&
-        _controller._document!.pagesCount > 0) {
-      await _getSliderImage(_sliderNumber);
-    }
   }
 
   Future<PdfPageImage> _getPageImage(int pageIndex) =>
@@ -181,74 +130,6 @@ class _PdfViewState extends State<PdfView>
 
         return _pages[pageIndex]!;
       });
-
-  Future<void> _getSliderImage(int pageIndex) async {
-    final image = await _getUiImage((await _getPageImage(pageIndex)).bytes);
-    setState(() {
-      _sliderImage = image;
-    });
-  }
-
-  // Convert PdfPageImage to ui.Image
-  Future<ui.Image> _getUiImage(Uint8List byteData) async {
-    final codec = await ui.instantiateImageCodec(byteData);
-    return (await codec.getNextFrame()).image;
-  }
-
-  // Initialize thumbnails
-  void _initializeThumbnails() {
-    final thumbnailCount = _calculateThumbnailCount(
-        ui.PlatformDispatcher.instance.views.first.physicalSize.width,
-        _controller._document!.pagesCount);
-    _calculateThumbnailPoints(
-        _controller._document!.pagesCount, thumbnailCount);
-  }
-
-  int _calculateThumbnailCount(double width, int pageCount) {
-    return (width / 130).round().clamp(0, pageCount);
-  }
-
-  void _calculateThumbnailPoints(int pageCount, int thumbnailCount) {
-    setState(() {
-      if (thumbnailCount <= 1) {
-        _thumbnailPoints = [0.0];
-      } else {
-        _thumbnailPoints = List<double>.generate(
-          thumbnailCount,
-          (i) => i * ((pageCount - 1) / (thumbnailCount - 1)),
-        );
-      }
-    });
-  }
-
-  // Thumbnail builder
-  Widget _buildThumbnail(int index) {
-    final pageIndex = _thumbnailPoints![index].toInt();
-
-    // Check if the thumbnail is already loaded
-    if (_pages.containsKey(pageIndex) && _pages[pageIndex]?.bytes != null) {
-      // If the thumbnail is already loaded, display it
-      return Image(image: MemoryImage(_pages[pageIndex]!.bytes));
-    } else {
-      // If the thumbnail is not loaded, use FutureBuilder to load it
-      return FutureBuilder<PdfPageImage?>(
-        future: _getPageImage(pageIndex),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const CupertinoActivityIndicator();
-          } else if (snapshot.hasError) {
-            return Text('Error: ${snapshot.error}');
-          } else if (snapshot.hasData) {
-            // Once the data is available, update _pages and display the image
-            _pages[pageIndex] = snapshot.data;
-            return Image(image: MemoryImage(snapshot.data!.bytes));
-          } else {
-            return const Text('No image available');
-          }
-        },
-      );
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -274,19 +155,19 @@ class _PdfViewState extends State<PdfView>
       switch (state) {
         case PdfLoadingState.loading:
           return KeyedSubtree(
-            key: const Key('pdfx.root.loading'),
+            key: const Key('pdfx_plugin.root.loading'),
             child: builders.documentLoaderBuilder?.call(context) ??
                 const SizedBox(),
           );
         case PdfLoadingState.error:
           return KeyedSubtree(
-            key: const Key('pdfx.root.error'),
+            key: const Key('pdfx_plugin.root.error'),
             child: builders.errorBuilder?.call(context, loadingError!) ??
                 Center(child: Text(loadingError.toString())),
           );
         case PdfLoadingState.success:
           return KeyedSubtree(
-            key: Key('pdfx.root.success.${document!.id}'),
+            key: Key('pdfx_plugin.root.success.${document!.id}'),
             child: loadedBuilder(context),
           );
       }
@@ -337,10 +218,6 @@ class _PdfViewState extends State<PdfView>
             backgroundDecoration: widget.backgroundDecoration,
             pageController: _controller._pageController,
             onPageChanged: (index) {
-              setState(() {
-                _getSliderImage(index);
-                _sliderNumber = index;
-              });
               final pageNumber = index + 1;
               _controller.pageListenable.value = pageNumber;
               widget.onPageChanged?.call(pageNumber);
@@ -354,81 +231,16 @@ class _PdfViewState extends State<PdfView>
             right: 0,
             bottom: 40,
             child: Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Container(
-                  height: 60,
-                  width: _thumbnailPoints!.length * 37,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(6),
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      SizedBox(
-                        height: 40,
-                        child: Align(
-                          child: ListView.separated(
-                            shrinkWrap: true,
-                            scrollDirection: Axis.horizontal,
-                            itemBuilder: (context, index) =>
-                                _buildThumbnail(index),
-                            itemCount: _thumbnailPoints?.length ?? 0,
-                            separatorBuilder: (context, index) =>
-                                const SizedBox(height: 5, width: 5),
-                          ),
-                        ),
-                      ),
-                      if (widget.controller.pagesCount != 1)
-                        SliderTheme(
-                          data: SliderThemeData(
-                            thumbShape: SliderThumbImage(
-                              image: _sliderImage,
-                              isDragging: _isDragging,
-                              rotation: _animationController.value,
-                            ),
-                            overlayShape: SliderComponentShape.noOverlay,
-                            trackHeight: 0,
-                            trackShape: CustomTrackShape(),
-                            showValueIndicator: ShowValueIndicator.always,
-                            valueIndicatorShape:
-                                CustomValueIndicatorShape(verticalOffset: 65),
-                          ),
-                          child: Slider(
-                            value: _sliderNumber.toDouble(),
-                            max: widget.controller._document!.pagesCount
-                                    .toDouble() -
-                                1,
-                            min: 0,
-                            label: (_sliderNumber + 1).toString(),
-                            onChanged: (double value) {
-                              final pageNum = value.round();
-                              setState(() {
-                                _sliderImage = null;
-                                _isDragging = true;
-                                _sliderNumber = pageNum;
-                              });
-                              _sliderImageDebouncer.run(
-                                () => _getSliderImage(pageNum),
-                              );
-                            },
-                            onChangeEnd: (double value) {
-                              widget.controller.jumpToPage(
-                                value.round() + 1,
-                              );
-                              setState(() {
-                                _isDragging = false; // <-- Set to false
-                              });
-                            },
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
+              child: PdfSlider(
+                totalPages: _controller._document?.pagesCount ?? 0,
+                thumbnailCache: _pages,
+                onPageChanged: (int page) {
+                  _controller.jumpToPage(page + 1);
+                },
+                getPageImage: (int index) => _getPageImage(index),
               ),
             ),
-          )
+          ),
         ],
       );
 }
