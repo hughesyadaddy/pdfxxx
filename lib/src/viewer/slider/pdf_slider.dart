@@ -131,21 +131,30 @@ class _PdfSliderState extends State<PdfSlider>
   Widget _buildThumbnail(int index) {
     final pageIndex = _thumbnailPoints[index].toInt();
 
-    return FutureBuilder<PdfPageImage?>(
-      future: widget.getPageImage(pageIndex),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const CupertinoActivityIndicator();
-        } else if (snapshot.hasError) {
-          return Text('Error: ${snapshot.error}');
-        } else if (snapshot.hasData) {
-          widget.thumbnailCache[pageIndex] = snapshot.data;
-          return Image(image: MemoryImage(snapshot.data!.bytes));
-        } else {
-          return const Text('No image available');
-        }
-      },
-    );
+    // Check if the thumbnail is already loaded
+    if (widget.thumbnailCache.containsKey(pageIndex) &&
+        widget.thumbnailCache[pageIndex]?.bytes != null) {
+      // If the thumbnail is already loaded, display it
+      return Image(image: MemoryImage(widget.thumbnailCache[pageIndex]!.bytes));
+    } else {
+      // If the thumbnail is not loaded, use FutureBuilder to load it
+      return FutureBuilder<PdfPageImage?>(
+        future: widget.getPageImage(pageIndex),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const CupertinoActivityIndicator();
+          } else if (snapshot.hasError) {
+            return Text('Error: ${snapshot.error}');
+          } else if (snapshot.hasData) {
+            // Once the data is available, update _pages and display the image
+            widget.thumbnailCache[pageIndex] = snapshot.data;
+            return Image(image: MemoryImage(snapshot.data!.bytes));
+          } else {
+            return const Text('No image available');
+          }
+        },
+      );
+    }
   }
 
   /// Retrieves and sets the slider image for a given page.
