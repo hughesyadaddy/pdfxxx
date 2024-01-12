@@ -210,10 +210,14 @@ class _PdfViewState extends State<PdfView>
 
   void _calculateThumbnailPoints(int pageCount, int thumbnailCount) {
     setState(() {
-      _thumbnailPoints = List<double>.generate(
-        thumbnailCount,
-        (i) => i * ((pageCount - 1) / (thumbnailCount - 1)),
-      );
+      if (thumbnailCount <= 1) {
+        _thumbnailPoints = [1.0];
+      } else {
+        _thumbnailPoints = List<double>.generate(
+          thumbnailCount,
+          (i) => i * ((pageCount - 1) / (thumbnailCount - 1)),
+        );
+      }
     });
   }
 
