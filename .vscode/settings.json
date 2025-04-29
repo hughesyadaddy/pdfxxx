@@ -17,5 +17,6 @@
         "uuid",
         "WEBP"
     ],
-    "C_Cpp.clang_format_fallbackStyle": "Google"
+    "C_Cpp.clang_format_fallbackStyle": "Google",
+    "yaml.schemaStore.enable": false
 }
