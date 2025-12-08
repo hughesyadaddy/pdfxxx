@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:html' as html;
-import 'dart:js' as js;
+import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 
 // ignore: unnecessary_import
 import 'dart:typed_data';
@@ -9,7 +9,6 @@ import 'dart:typed_data';
 import 'package:flutter/painting.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_web_plugins/flutter_web_plugins.dart';
-import 'package:js/js_util.dart' as js_util;
 import 'package:meta/meta.dart';
 import 'package:pdfx/src/renderer/interfaces/document.dart';
 import 'package:pdfx/src/renderer/interfaces/page.dart';
@@ -18,6 +17,7 @@ import 'package:pdfx/src/renderer/rgba_data.dart';
 import 'package:pdfx/src/renderer/web/pdfjs.dart';
 import 'package:pdfx/src/renderer/web/resources/document_repository.dart';
 import 'package:pdfx/src/renderer/web/resources/page_repository.dart';
+import 'package:web/web.dart' as web;
 
 final _documents = DocumentRepository();
 final _pages = PageRepository();
@@ -195,6 +195,36 @@ class PdfPageWeb extends PdfPage {
   int get hashCode => document.hashCode ^ pageNumber;
 }
 
+/// Helper to convert canvas to blob and read as bytes
+Future<Uint8List> _canvasToBytes(
+    web.HTMLCanvasElement canvas, String mimeType) async {
+  final completer = Completer<Uint8List>();
+
+  canvas.toBlob(
+    ((web.Blob? blob) {
+      if (blob == null) {
+        completer.completeError('Failed to create blob');
+        return;
+      }
+      final reader = web.FileReader();
+      reader.onload = ((web.Event event) {
+        final result = reader.result;
+        if (result != null) {
+          final arrayBuffer = result as JSArrayBuffer;
+          completer.complete(arrayBuffer.toDart.asUint8List());
+        }
+      }).toJS;
+      reader.onerror = ((web.Event event) {
+        completer.completeError('Failed to read blob');
+      }).toJS;
+      reader.readAsArrayBuffer(blob);
+    }).toJS,
+    mimeType,
+  );
+
+  return completer.future;
+}
+
 class PdfPageImageWeb extends PdfPageImage {
   PdfPageImageWeb({
     required String? id,
@@ -239,10 +269,10 @@ class PdfPageImageWeb extends PdfPageImage {
     required PdfjsPage pdfJsPage,
   }) async {
     final preViewport = pdfJsPage.getViewport(PdfjsViewportParams(scale: 1));
-    final html.CanvasElement canvas =
-        js.context['document'].createElement('canvas');
-    final html.CanvasRenderingContext2D context = canvas
-        .getContext('2d', {"alpha": false}) as html.CanvasRenderingContext2D;
+    final canvas =
+        web.document.createElement('canvas') as web.HTMLCanvasElement;
+    final context = canvas.getContext('2d', {'alpha': false}.jsify())
+        as web.CanvasRenderingContext2D;
 
     final viewport = pdfJsPage
         .getViewport(PdfjsViewportParams(scale: width / preViewport.width));
@@ -256,20 +286,9 @@ class PdfPageImageWeb extends PdfPageImage {
       viewport: viewport,
     );
 
-    await js_util
-        .promiseToFuture<void>(pdfJsPage.render(renderContext).promise);
+    await pdfJsPage.render(renderContext).promise.toDart;
 
-    // Convert the image to PNG
-    final completer = Completer<void>();
-    final blob = await canvas.toBlob('image/jpeg');
-
-    late Uint8List data;
-    final reader = html.FileReader()..readAsArrayBuffer(blob);
-    reader.onLoadEnd.listen((html.ProgressEvent e) {
-      data = Uint8List.fromList(reader.result as List<int>);
-      completer.complete();
-    });
-    await completer.future;
+    final data = await _canvasToBytes(canvas, 'image/jpeg');
 
     return PdfPageImageWeb(
       id: pageId,
@@ -318,7 +337,7 @@ class PdfPageTextureWeb extends PdfPageTexture {
   @override
   Future<void> dispose() async {
     _textures.remove(id);
-    js_util.setProperty(html.window, 'pdfx_texture_$id', null);
+    (web.window as JSObject)['pdfx_texture_$id'] = null;
   }
 
   @override
@@ -385,7 +404,7 @@ class PdfPageTextureWeb extends PdfPageTexture {
             width: width,
             height: height,
           );
-    js_util.setProperty(html.window, 'pdfx_texture_$id', data);
+    (web.window as JSObject)['pdfx_texture_$id'] = data as JSAny;
     return data;
   }
 
@@ -437,16 +456,17 @@ class PdfPageTextureWeb extends PdfPageTexture {
       dontFlip: dontFlip,
     ));
 
-    final canvas = (html.document.createElement('canvas') as html.CanvasElement)
-      ..width = preWidth
-      ..height = preHeight;
+    final canvas =
+        web.document.createElement('canvas') as web.HTMLCanvasElement
+          ..width = preWidth
+          ..height = preHeight;
 
-    final html.CanvasRenderingContext2D context = canvas
-        .getContext('2d', {"alpha": false}) as html.CanvasRenderingContext2D;
+    final context = canvas.getContext('2d', {'alpha': false}.jsify())
+        as web.CanvasRenderingContext2D;
 
     if (backgroundColor != null) {
       context
-        ..fillStyle = backgroundColor
+        ..fillStyle = backgroundColor.toJS
         ..fillRect(0, 0, preWidth, preHeight);
     }
 
@@ -456,19 +476,9 @@ class PdfPageTextureWeb extends PdfPageTexture {
       enableWebGL: true,
     );
 
-    await js_util
-        .promiseToFuture<void>(page.renderer.render(rendererContext).promise);
+    await page.renderer.render(rendererContext).promise.toDart;
 
-    // Convert the image to PNG
-    final completer = Completer<void>();
-    final blob = await canvas.toBlob('image/jpeg');
-    late Uint8List data;
-    final reader = html.FileReader()..readAsArrayBuffer(blob);
-    reader.onLoadEnd.listen((html.ProgressEvent e) {
-      data = Uint8List.fromList(reader.result as List<int>);
-      completer.complete();
-    });
-    await completer.future;
+    final data = await _canvasToBytes(canvas, 'image/jpeg');
 
     return handleRawData(data, preWidth, preHeight);
   }

@@ -5,8 +5,8 @@ issue_tracker: https://github.com/ScerIO/packages.flutter/issues?q=is%3Aissue+is
 version: 2.5.0
 
 environment:
-  sdk: ">=3.0.0 <4.0.0"
-  flutter: ">=3.0.0"
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.19.0'
 
 dependencies:
   flutter:
@@ -14,7 +14,7 @@ dependencies:
   flutter_web_plugins:
     sdk: flutter
   plugin_platform_interface: ^2.1.6
-  js: ^0.6.3
+  web: ^1.1.0
   device_info_plus: ^11.4.0
   uuid: ^4.4.0
   meta: ^1.9.1

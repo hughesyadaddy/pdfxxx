@@ -1,4 +1,5 @@
-import 'package:js/js_util.dart';
+import 'dart:js_interop';
+
 import 'package:pdfx/src/renderer/web/pdfjs.dart';
 
 class Document {
@@ -20,5 +21,5 @@ class Document {
   void close() {}
 
   Future<PdfjsPage> openPage(int? pageNumber) =>
-      promiseToFuture<PdfjsPage>(document.getPage(pageNumber!));
+      document.getPage(pageNumber!).toDart.then((value) => value as PdfjsPage);
 }

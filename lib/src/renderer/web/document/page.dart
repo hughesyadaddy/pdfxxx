@@ -1,10 +1,9 @@
 import 'dart:async';
-import 'dart:html' as html;
-import 'dart:js' as js;
+import 'dart:js_interop';
 import 'dart:typed_data';
 
-import 'package:js/js_util.dart';
 import 'package:pdfx/src/renderer/web/pdfjs.dart';
+import 'package:web/web.dart' as web;
 
 class Page {
   Page({
@@ -36,10 +35,10 @@ class Page {
     required int width,
     required int height,
   }) async {
-    final html.CanvasElement canvas =
-        js.context['document'].createElement('canvas');
-    final html.CanvasRenderingContext2D context = canvas
-        .getContext('2d', {"alpha": false}) as html.CanvasRenderingContext2D;
+    final canvas =
+        web.document.createElement('canvas') as web.HTMLCanvasElement;
+    final context = canvas.getContext('2d', {'alpha': false}.jsify())
+        as web.CanvasRenderingContext2D;
 
     final viewport = renderer
         .getViewport(PdfjsViewportParams(scale: width / _viewport.width));
@@ -53,25 +52,39 @@ class Page {
       viewport: viewport,
     );
 
-    await promiseToFuture<void>(renderer.render(renderContext).promise);
+    await renderer.render(renderContext).promise.toDart;
 
-    // Convert the image to PNG
-    final completer = Completer<void>();
-    final blob = await canvas.toBlob();
-    final data = BytesBuilder();
-    final reader = html.FileReader()..readAsArrayBuffer(blob);
-    reader.onLoadEnd.listen(
-      (html.ProgressEvent e) {
-        data.add(reader.result as List<int>);
-        completer.complete();
-      },
+    // Convert the image to PNG using callback-based toBlob
+    final completer = Completer<Uint8List>();
+
+    canvas.toBlob(
+      ((web.Blob? blob) {
+        if (blob == null) {
+          completer.completeError('Failed to create blob');
+          return;
+        }
+        final reader = web.FileReader();
+        reader.onload = ((web.Event event) {
+          final result = reader.result;
+          if (result != null) {
+            final arrayBuffer = result as JSArrayBuffer;
+            completer.complete(arrayBuffer.toDart.asUint8List());
+          }
+        }).toJS;
+        reader.onerror = ((web.Event event) {
+          completer.completeError('Failed to read blob');
+        }).toJS;
+        reader.readAsArrayBuffer(blob);
+      }).toJS,
+      'image/png',
     );
-    await completer.future;
+
+    final data = await completer.future;
 
     return Data(
       width: width,
       height: height,
-      data: data.toBytes(),
+      data: data,
     );
   }
 }
